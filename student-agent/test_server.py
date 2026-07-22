@@ -7,7 +7,7 @@ app = FastAPI()
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    print("✅ System Connected!")
+    print("[OK] System Connected!", flush=True)
 
     while True:
         try:
@@ -15,14 +15,14 @@ async def websocket_endpoint(websocket: WebSocket):
             message = json.loads(data)
 
             if message["type"] == "window":
-                print(f"Active Window: {message['data'].get('title')}")
+                print(f"Active Window: {message['data'].get('title')}", flush=True)
             elif message["type"] == "screen":
-                print("📺 Screen frame received")
+                print("Screen frame received", flush=True)
             else:
-                print(f"Received: {message['type']}")
+                print(f"Received: {message['type']}", flush=True)
 
         except Exception as e:
-            print("Disconnected:", e)
+            print("Disconnected:", e, flush=True)
             break
 
 if __name__ == "__main__":
