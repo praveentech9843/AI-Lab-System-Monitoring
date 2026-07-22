@@ -14,11 +14,15 @@ from api.auth import router as auth_router
 from api.exam_session import router as exam_session_router
 from api.faculty import router as faculty_router
 from api.student import router as student_router
+from api.computer import router as computer_router
 from config import settings
 import database.models  # Ensures all SQLAlchemy models are registered with Base metadata
 from database.base import Base
 from database.database import engine
 from websocket.routes import router as websocket_router
+from fastapi.staticfiles import StaticFiles
+import os
+
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -63,9 +67,15 @@ app.include_router(faculty_router)
 app.include_router(exam_session_router)
 app.include_router(activity_log_router)
 app.include_router(alert_router)
+app.include_router(computer_router)
 
 # Register WebSocket Router
 app.include_router(websocket_router)
+
+# Serve static files (screenshots)
+os.makedirs("./static/screenshots", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 
 @app.get(

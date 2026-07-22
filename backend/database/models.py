@@ -337,3 +337,37 @@ class Alert(Base):
 
     def __repr__(self) -> str:
         return f"<Alert(id={self.id}, alert_type='{self.alert_type}')>"
+
+
+class ComputerEvent(Base):
+    """
+    ComputerEvent ORM Model.
+    Tracks raw monitoring updates sent by the Student Monitoring Agent.
+    Stores computer details, metrics, active app/website, and timestamps.
+    """
+    __tablename__ = "computer_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True
+    )
+    computer_id: Mapped[str] = mapped_column(String(50), index=True, nullable=False)
+    student_name: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    active_application: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    active_website: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    cpu_usage: Mapped[float] = mapped_column(Float, default=0.0)
+    ram_usage: Mapped[float] = mapped_column(Float, default=0.0)
+    screenshot_path: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    activity_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=1.0)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<ComputerEvent(id={self.id}, computer_id='{self.computer_id}', activity_type='{self.activity_type}')>"
+

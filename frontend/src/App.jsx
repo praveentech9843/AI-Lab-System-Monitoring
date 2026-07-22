@@ -1,8 +1,18 @@
-// Main React Dashboard Component
-export default function App() {
+import React from 'react';
+import { BrowserRouter } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
+import { AuthProvider } from './context/AuthContext';
+import AppRoutes from './routes/AppRoutes';
+
+const App = () => {
   return (
-    <div>
-      <h1>AI Lab System Monitoring Dashboard</h1>
-    </div>
+    <BrowserRouter>
+      <AuthProvider>
+        <Toaster position="top-right" reverseOrder={false} />
+        <AppRoutes />
+      </AuthProvider>
+    </BrowserRouter>
   );
-}
+};
+
+export default App;
