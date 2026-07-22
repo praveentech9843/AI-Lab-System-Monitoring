@@ -1,0 +1,9 @@
+# Dependencies for Student Screen Capture Agent
+websockets>=14.0.0
+mss>=10.2.0
+opencv-python>=4.10.0
+psutil>=6.0.0
+keyboard>=0.13.5
+pywin32>=306
+pillow>=10.0.0
+
