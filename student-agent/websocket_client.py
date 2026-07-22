@@ -59,8 +59,34 @@ class WebSocketClient:
     async def receive(self):
         """Asynchronously listens for incoming server messages."""
         async for message in self.websocket:
-            print("Received:", message)
+            try:
+                payload = json.loads(message)
+                if payload.get("event") == "COMMAND_TRIGGERED":
+                    cmd_data = payload.get("data", {}) or {}
+                    # SYSTEM_01 -> PC-01, SYSTEM_02 -> PC-02 etc.
+                    cfg_comp_id = config.SYSTEM_ID.replace("SYSTEM_", "PC-")
+                    tgt_comp_id = cmd_data.get("computer_id")
+                    
+                    if tgt_comp_id == cfg_comp_id or tgt_comp_id == config.SYSTEM_ID:
+                        command = cmd_data.get("command", "").lower()
+                        print(f"Received admin action command: {command}")
+                        sys.stdout.flush()
+                        self.execute_command(command)
+            except Exception as e:
+                print(f"Error handling incoming message: {e}")
+                sys.stdout.flush()
+
+    def execute_command(self, command: str):
+        if command == "lock":
+            print("EXECUTE: Lock workstation.")
             sys.stdout.flush()
+            if sys.platform == "win32":
+                import ctypes
+                ctypes.windll.user32.LockWorkStation()
+        elif command == "logout":
+            print("EXECUTE: Force logout.")
+            sys.stdout.flush()
+            sys.exit(0)
 
     async def reconnect(self):
         """Forces a reconnect by closing the active websocket."""
@@ -80,3 +106,4 @@ class WebSocketClient:
             except Exception:
                 pass
             self.websocket = None
+

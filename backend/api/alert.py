@@ -14,6 +14,7 @@ from crud.alert import (
     delete_alert,
     get_alerts_by_session,
     get_alerts_by_student,
+    get_all_alerts,
 )
 from database.session import get_db
 from schemas.alert import AlertCreate, AlertResponse
@@ -32,6 +33,13 @@ def create_new_alert(
     """
     return create_alert(db, alert_data)
 
+
+@router.get("/", response_model=List[AlertResponse], status_code=status.HTTP_200_OK)
+def read_all_alerts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """
+    Retrieves all alerts across all sessions.
+    """
+    return get_all_alerts(db, skip=skip, limit=limit)
 
 @router.get("/student/{student_id}", response_model=List[AlertResponse], status_code=status.HTTP_200_OK)
 def read_alerts_by_student(student_id: UUID, skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):

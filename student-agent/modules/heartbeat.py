@@ -1,5 +1,6 @@
 import asyncio
 import config
+import psutil
 from message_builder import build_message
 
 class Heartbeat:
@@ -18,7 +19,9 @@ class Heartbeat:
         while self.running:
             if self.client.connected:
                 try:
-                    message = build_message(msg_type="heartbeat")
+                    cpu = psutil.cpu_percent()
+                    ram = psutil.virtual_memory().percent
+                    message = build_message(msg_type="heartbeat", data={"cpu": cpu, "ram": ram})
                     await self.client.send(message)
                 except Exception:
                     pass
@@ -30,3 +33,4 @@ class Heartbeat:
         if self.task:
             self.task.cancel()
             self.task = None
+

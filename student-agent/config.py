@@ -1,7 +1,8 @@
 import os
 
 # Server connection configuration
-SERVER_URL = os.getenv("SERVER_URL", "ws://127.0.0.1:8000/ws")
+SERVER_URL = os.getenv("SERVER_URL", "ws://127.0.0.1:8000/ws/live")
+# SERVER_URL = os.getenv("SERVER_URL", "ws://10.192.176.165:8000/ws/live")
 SYSTEM_ID = os.getenv("SYSTEM_ID", "SYSTEM_01")
 
 # Screen Capture Configuration
@@ -17,3 +18,5 @@ WINDOW_SCAN_INTERVAL = float(os.getenv("WINDOW_SCAN_INTERVAL", "1.0"))
 # Feature Toggles
 KEYBOARD_ENABLED = True
 CLIPBOARD_ENABLED = True
+
+STREAM_INTERVAL = float(os.getenv("STREAM_INTERVAL", "2.0"))

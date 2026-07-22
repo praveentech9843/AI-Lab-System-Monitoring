@@ -5,6 +5,7 @@ from startup import register_startup
 from modules.heartbeat import Heartbeat
 from modules.screen_stream import ScreenStream
 from modules.active_window import ActiveWindow
+from modules.browser_monitor import BrowserMonitor
 from modules.process_monitor import ProcessMonitor
 from modules.keyboard_monitor import KeyboardMonitor
 from modules.clipboard_monitor import ClipboardMonitor
@@ -24,6 +25,7 @@ async def main():
     heartbeat = Heartbeat(client)
     screen_stream = ScreenStream(client)
     active_window = ActiveWindow(client)
+    browser_monitor = BrowserMonitor(client)
     process_monitor = ProcessMonitor(client)
     keyboard_monitor = KeyboardMonitor(client)
     clipboard_monitor = ClipboardMonitor(client)
@@ -38,12 +40,13 @@ async def main():
     heartbeat.start()
     screen_stream.start()
     active_window.start()
+    browser_monitor.start()
     process_monitor.start()
-    
+
     # Pass running event loop to keyboard monitor for thread-safe dispatches
     keyboard_monitor.loop = asyncio.get_running_loop()
     keyboard_monitor.start()
-    
+
     clipboard_monitor.start()
 
     print("Student Agent fully started and monitoring active.")
@@ -60,10 +63,11 @@ async def main():
         heartbeat.stop()
         screen_stream.stop()
         active_window.stop()
+        browser_monitor.stop()
         process_monitor.stop()
         keyboard_monitor.stop()
         clipboard_monitor.stop()
-        
+
         await client.stop()
         print("Agent stopped cleanly.")
         sys.stdout.flush()

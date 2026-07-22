@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -346,6 +346,12 @@ class ComputerEvent(Base):
     Stores computer details, metrics, active app/website, and timestamps.
     """
     __tablename__ = "computer_events"
+
+    # Composite index: accelerates `WHERE computer_id=X ORDER BY timestamp DESC LIMIT 1`
+    # which is the hottest query pattern (called on every agent packet)
+    __table_args__ = (
+        Index("ix_computer_events_computer_ts", "computer_id", "timestamp"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

@@ -221,7 +221,15 @@ def read_latest_states(db: Session = Depends(get_db)):
     """
     Retrieves the latest state/status for every unique computer.
     """
-    return get_latest_computer_states(db)
+    states = get_latest_computer_states(db)
+    result = []
+    for s in states:
+        evt = ComputerEventResponse.model_validate(s)
+        if evt.screenshot_path:
+            ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+            evt.screenshot_path = f"{evt.screenshot_path}?t={ts}"
+        result.append(evt)
+    return result
 
 @router.get("/{computer_id}/latest-screenshot", status_code=status.HTTP_200_OK)
 def read_latest_screenshot(computer_id: str, db: Session = Depends(get_db)):
@@ -261,11 +269,13 @@ def read_computer_details(computer_id: str, db: Session = Depends(get_db)):
 
     # 2. Fetch student details and active session
     alerts_list = []
-    student = None
+    student_data = None
     if latest_event.student_name:
         stmt_stud = select(Student).where(Student.name.ilike(latest_event.student_name.strip()))
         student = db.scalar(stmt_stud)
         if student:
+            from schemas.student import StudentResponse
+            student_data = StudentResponse.model_validate(student)
             # Get alerts list
             stmt_alerts = (
                 select(Alert)
@@ -275,10 +285,17 @@ def read_computer_details(computer_id: str, db: Session = Depends(get_db)):
             )
             alerts_list = db.scalars(stmt_alerts).all()
 
+    latest_state_data = None
+    if latest_event:
+        latest_state_data = ComputerEventResponse.model_validate(latest_event)
+        if latest_state_data.screenshot_path:
+            ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+            latest_state_data.screenshot_path = f"{latest_state_data.screenshot_path}?t={ts}"
+
     return {
         "computer_id": computer_id,
-        "latest_state": latest_event,
-        "student": student,
+        "latest_state": latest_state_data,
+        "student": student_data,
         "alerts": [
             {
                 "id": str(a.id),

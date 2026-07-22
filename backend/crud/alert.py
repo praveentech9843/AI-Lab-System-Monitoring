@@ -69,6 +69,19 @@ def get_alerts_by_session(db: Session, session_id: UUID, skip: int = 0, limit: i
     return list(db.scalars(statement).all())
 
 
+def get_all_alerts(db: Session, skip: int = 0, limit: int = 100) -> List[Alert]:
+    """
+    Retrieves all Alert records across all sessions ordered by creation time descending.
+    """
+    statement = (
+        select(Alert)
+        .order_by(Alert.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    return list(db.scalars(statement).all())
+
+
 def delete_alert(db: Session, alert_id: UUID) -> bool:
     """
     Deletes an Alert record by ID. Returns True if deleted, False if not found.

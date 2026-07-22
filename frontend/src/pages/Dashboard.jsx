@@ -444,9 +444,19 @@ const ComputerDetailsModal = ({ computer, onClose, getRiskStatus, riskData }) =>
               {/* Latest Screenshot */}
               <div className="rounded-2xl overflow-hidden bg-white/5 border border-white/5 p-4 space-y-2">
                 <span className="text-xs text-slate-500 uppercase font-semibold block">Latest Workstation Screen Capture</span>
-                {computer?.screenshot_path ? (
+                {computer?.screenshot_data ? (
                   <div className="relative rounded-xl overflow-hidden max-h-56">
                     <img
+                      key={computer.screenshot_data}
+                      src={`data:image/jpeg;base64,${computer.screenshot_data}`}
+                      alt="Workstation capture"
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                ) : computer?.screenshot_path ? (
+                  <div className="relative rounded-xl overflow-hidden max-h-56">
+                    <img
+                      key={computer.screenshot_path}
                       src={`http://localhost:8000/static/screenshots/${computer.screenshot_path}`}
                       alt="Workstation capture"
                       className="w-full h-full object-contain"
@@ -604,12 +614,20 @@ const ComputerCard = ({ pc, delay, riskData, getRiskStatus, onClick, onAction })
         ) : (
           <>
             <div className="absolute inset-0 flex items-center justify-center">
-              {pc.screenshot_path ? (
+              {pc.screenshot_data ? (
                 <img
+                  key={pc.screenshot_data}
+                  src={`data:image/jpeg;base64,${pc.screenshot_data}`}
+                  alt="Workstation Preview"
+                  className="w-full h-full object-cover opacity-80"
+                />
+              ) : pc.screenshot_path ? (
+                <img
+                  key={pc.screenshot_path}
                   src={`http://localhost:8000/static/screenshots/${pc.screenshot_path}`}
                   alt="Workstation Preview"
                   className="w-full h-full object-cover opacity-80"
-                  onError={(e) => { e.target.style.display = 'none'; }}
+                  onError={(e) => { e.target.onerror = null; }}
                 />
               ) : (
                 <div className="grid grid-cols-4 gap-0.5 w-3/4 opacity-15">
@@ -872,19 +890,19 @@ const Dashboard = () => {
 
   const fetchActivities = useCallback(async () => {
     const sid = latestSessionIdRef.current;
-    if (!sid) { setFeedLoading(false); return; }
     try {
-      const { data } = await api.get(`/activities/session/${sid}?skip=0&limit=50`);
-      setActivities((data || []).slice().reverse());
+      if (sid) {
+        const { data } = await api.get(`/activities/session/${sid}?skip=0&limit=50`);
+        setActivities((data || []).slice().reverse());
+      }
     } catch { }
     finally { setFeedLoading(false); }
   }, []);
 
   const fetchAlerts = useCallback(async () => {
-    const sid = latestSessionIdRef.current;
-    if (!sid) { setAlertLoading(false); return; }
     try {
-      const { data } = await api.get(`/alerts/session/${sid}?skip=0&limit=20`);
+      // Fetch all alerts across all sessions (session-agnostic)
+      const { data } = await api.get('/alerts/?skip=0&limit=50');
       setAlerts((data || []).slice().reverse());
     } catch { }
     finally { setAlertLoading(false); }
@@ -919,12 +937,13 @@ const Dashboard = () => {
                 grid[idx] = {
                   ...grid[idx],
                   student: state.student_name || grid[idx].student,
-                  app: state.active_application || 'None',
-                  website: state.active_website || 'None',
+                  app: (state.active_application && state.active_application !== 'None') ? state.active_application : (grid[idx].app || 'None'),
+                  website: (state.active_website && state.active_website !== 'None') ? state.active_website : (grid[idx].website || 'None'),
                   status,
-                  cpu: state.cpu_usage || 0,
-                  ram: state.ram_usage || 0,
-                  screenshot_path: state.screenshot_path || grid[idx].screenshot_path
+                  cpu: state.cpu_usage ?? grid[idx].cpu ?? 0,
+                  ram: state.ram_usage ?? grid[idx].ram ?? 0,
+                  screenshot_path: state.screenshot_path || grid[idx].screenshot_path,
+                  screenshot_data: state.screenshot_data || grid[idx].screenshot_data
                 };
               }
               return grid;
@@ -941,8 +960,13 @@ const Dashboard = () => {
           else if (payload.event === 'ALERT_TRIGGERED') {
             const alert = payload.data;
             if (alert) {
-              setAlerts(prev => [alert, ...(prev || []).slice(0, 19)]);
-              toast.error(`🚨 AI Alert: ${alert.message}`, { duration: 5000 });
+              // Add to alerts list (deduplicate by id)
+              setAlerts(prev => {
+                const exists = (prev || []).some(a => a.id === alert.id);
+                if (exists) return prev;
+                return [alert, ...(prev || []).slice(0, 49)];
+              });
+              toast.error(`🚨 Alert: ${alert.message}`, { duration: 6000 });
             }
           }
         } catch (err) {
@@ -973,14 +997,12 @@ const Dashboard = () => {
   }, [fetchHealth, fetchStats]);
 
   useEffect(() => {
-    if (sessions.length > 0) {
+    // Fetch activities and alerts right after stats load, regardless of session count
+    if (!statsLoading) {
       fetchActivities();
       fetchAlerts();
-    } else if (!statsLoading) {
-      setFeedLoading(false);
-      setAlertLoading(false);
     }
-  }, [sessions, statsLoading, fetchActivities, fetchAlerts]);
+  }, [statsLoading, fetchActivities, fetchAlerts]);
 
   /* Manual Refresh */
   const handleRefresh = useCallback(async () => {
@@ -1589,7 +1611,7 @@ const Dashboard = () => {
       <AnimatePresence>
         {selectedPC && (
           <ComputerDetailsModal
-            computer={selectedPC}
+            computer={computers.find(c => c.id === selectedPC.id) || selectedPC}
             onClose={() => setSelectedPC(null)}
             getRiskStatus={getRiskStatus}
             riskData={riskScores?.[selectedPC.id]}
