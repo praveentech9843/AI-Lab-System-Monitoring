@@ -1,4 +1,14 @@
 """
-Database Package.
-Will handle database sessions, connection pooling, and ORM models.
+Database Package Interface.
+Exports essential database foundation components for clean imports across the application.
 """
+from .base import Base
+from .database import engine
+from .session import SessionLocal, get_db
+
+__all__ = [
+    "Base",
+    "engine",
+    "SessionLocal",
+    "get_db",
+]

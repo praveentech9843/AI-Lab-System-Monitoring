@@ -1,6 +1,6 @@
 fastapi
 uvicorn
+python-dotenv
+pydantic
 sqlalchemy
-ultralytics
-opencv-python
-websockets
+psycopg2-binary
