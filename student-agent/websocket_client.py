@@ -28,14 +28,16 @@ class WebSocketClient:
                 from modules.heartbeat import heartbeat_loop
                 heartbeat_task = asyncio.create_task(heartbeat_loop(self))
                 
+                # Start screen stream loop in the background
+                from modules.screen_stream import screen_stream_loop
+                screen_task = asyncio.create_task(screen_stream_loop(self))
+                
                 try:
                     await self.receive_messages()
                 finally:
                     heartbeat_task.cancel()
-                    try:
-                        await heartbeat_task
-                    except asyncio.CancelledError:
-                        pass
+                    screen_task.cancel()
+                    await asyncio.gather(heartbeat_task, screen_task, return_exceptions=True)
 
             except Exception as e:
                 print(f"Connection Lost: {e}")
