@@ -15,7 +15,7 @@ class Settings:
     Application Settings class.
 
     Retrieves configuration values from environment variables with sensible defaults.
-    Houses application metadata, network parameters, and database connection strings.
+    Houses application metadata, network parameters, database connection strings, and JWT settings.
     """
 
     # Project Metadata
@@ -32,6 +32,11 @@ class Settings:
         "DATABASE_URL",
         "postgresql://postgres:password@localhost:5432/ai_lab_monitoring"
     )
+
+    # JWT Authentication Settings
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "super_secret_jwt_key_change_in_production")
+    ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
 
 
 # Global instantiated settings object for application-wide use

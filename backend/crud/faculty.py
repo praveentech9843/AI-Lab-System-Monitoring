@@ -1,6 +1,6 @@
 """
 Faculty CRUD Operations Module.
-Provides database access functions for Faculty ORM models with safe transaction handling.
+Provides database access functions for Faculty ORM models with safe transaction handling and password hashing.
 """
 from typing import List, Optional
 from uuid import UUID
@@ -8,19 +8,20 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from auth.security import hash_password
 from database.models import Faculty
 from schemas.faculty import FacultyCreate, FacultyUpdate
 
 
 def create_faculty(db: Session, faculty_create: FacultyCreate) -> Faculty:
     """
-    Creates a new Faculty record in the database.
+    Creates a new Faculty record in the database with hashed password.
     """
     db_faculty = Faculty(
         employee_id=faculty_create.employee_id,
         name=faculty_create.name,
         email=faculty_create.email,
-        password_hash=faculty_create.password,
+        password_hash=hash_password(faculty_create.password),
         role=faculty_create.role,
     )
     db.add(db_faculty)
@@ -67,7 +68,7 @@ def get_all_faculty(db: Session, skip: int = 0, limit: int = 100) -> List[Facult
 
 def update_faculty(db: Session, faculty_id: UUID, faculty_update: FacultyUpdate) -> Optional[Faculty]:
     """
-    Updates an existing Faculty record with provided fields.
+    Updates an existing Faculty record with provided fields and hashes password if updated.
     """
     db_faculty = get_faculty_by_id(db, faculty_id)
     if not db_faculty:
@@ -75,7 +76,7 @@ def update_faculty(db: Session, faculty_id: UUID, faculty_update: FacultyUpdate)
 
     update_data = faculty_update.model_dump(exclude_unset=True)
     if "password" in update_data:
-        update_data["password_hash"] = update_data.pop("password")
+        update_data["password_hash"] = hash_password(update_data.pop("password"))
 
     for field, value in update_data.items():
         setattr(db_faculty, field, value)

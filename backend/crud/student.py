@@ -1,6 +1,6 @@
 """
 Student CRUD Operations Module.
-Provides database access functions for Student ORM models with safe transaction handling.
+Provides database access functions for Student ORM models with safe transaction handling and password hashing.
 """
 from typing import List, Optional
 from uuid import UUID
@@ -8,13 +8,14 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from auth.security import hash_password
 from database.models import Student
 from schemas.student import StudentCreate, StudentUpdate
 
 
 def create_student(db: Session, student_create: StudentCreate) -> Student:
     """
-    Creates a new Student record in the database.
+    Creates a new Student record in the database with hashed password.
     """
     db_student = Student(
         register_number=student_create.register_number,
@@ -22,7 +23,7 @@ def create_student(db: Session, student_create: StudentCreate) -> Student:
         department=student_create.department,
         year=student_create.year,
         email=student_create.email,
-        password_hash=student_create.password,
+        password_hash=hash_password(student_create.password),
     )
     db.add(db_student)
     try:
@@ -68,7 +69,7 @@ def get_all_students(db: Session, skip: int = 0, limit: int = 100) -> List[Stude
 
 def update_student(db: Session, student_id: UUID, student_update: StudentUpdate) -> Optional[Student]:
     """
-    Updates an existing Student record with provided fields.
+    Updates an existing Student record with provided fields and hashes password if updated.
     """
     db_student = get_student_by_id(db, student_id)
     if not db_student:
@@ -76,7 +77,7 @@ def update_student(db: Session, student_id: UUID, student_update: StudentUpdate)
 
     update_data = student_update.model_dump(exclude_unset=True)
     if "password" in update_data:
-        update_data["password_hash"] = update_data.pop("password")
+        update_data["password_hash"] = hash_password(update_data.pop("password"))
 
     for field, value in update_data.items():
         setattr(db_student, field, value)
