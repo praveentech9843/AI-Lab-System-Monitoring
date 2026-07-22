@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+sqlalchemy
+ultralytics
+opencv-python
+websockets
