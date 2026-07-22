@@ -1,7 +1,8 @@
-import time
-import threading
+import asyncio
 import logging
+import sys
 import config
+from message_builder import build_message
 
 logger = logging.getLogger("KeyboardMonitor")
 
@@ -10,56 +11,65 @@ try:
     keyboard_available = True
 except ImportError:
     keyboard_available = False
-    logger.warning("keyboard not installed. Keyboard monitor will not function.")
 
 class KeyboardMonitor:
-    def __init__(self, ws_client):
-        self.ws_client = ws_client
+    def __init__(self, client):
+        self.client = client
         self.running = False
-        self.key_count = 0
-        self.lock = threading.Lock()
-        self.hook = None
+        self.loop = None
 
     def start(self):
-        if config.KEYBOARD_MONITOR_ENABLED and keyboard_available:
+        """Starts the keyboard hooking logic if enabled."""
+        if config.KEYBOARD_ENABLED and keyboard_available:
             self.running = True
+            # Keep track of the current event loop for thread-safe scheduling
             try:
-                self.hook = keyboard.on_press(self._on_press)
-                # Start a reporting thread for keystroke statistics
-                self.report_thread = threading.Thread(target=self._report_loop)
-                self.report_thread.daemon = True
-                self.report_thread.start()
-                logger.info("Keyboard monitor started")
+                self.loop = asyncio.get_running_loop()
+            except RuntimeError:
+                self.loop = asyncio.get_event_loop()
+            
+            try:
+                keyboard.hook(self.on_key_event)
             except Exception as e:
-                logger.error(f"Failed to start keyboard monitor: {e}")
+                logger.error(f"Failed to hook keyboard: {e}")
 
-    def _on_press(self, event):
+    def on_key_event(self, event):
+        """Low-level OS hook callback that checks for specific system shortcuts."""
         if not self.running:
             return
-        with self.lock:
-            self.key_count += 1
+        
+        # Only process on key down to avoid duplicate logs on key release
+        if event.event_type == keyboard.KEY_DOWN:
+            # Alt+Tab detection
+            if keyboard.is_pressed('alt') and event.name == 'tab':
+                self.send_shortcut("Alt+Tab")
+            # Ctrl+C detection
+            elif keyboard.is_pressed('ctrl') and event.name == 'c':
+                self.send_shortcut("Ctrl+C")
+            # Ctrl+V detection
+            elif keyboard.is_pressed('ctrl') and event.name == 'v':
+                self.send_shortcut("Ctrl+V")
+            # Windows key detection
+            elif event.name in ('left windows', 'right windows', 'win'):
+                self.send_shortcut("Windows")
+            # Print Screen key detection
+            elif event.name in ('print screen', 'prtscn', 'snapshot'):
+                self.send_shortcut("PrintScreen")
 
-    def _report_loop(self):
-        while self.running:
-            time.sleep(10)  # Report keystroke metrics every 10 seconds
-            with self.lock:
-                current_count = self.key_count
-                self.key_count = 0
-            
-            if current_count > 0:
-                logger.info(f"Keystrokes in last period: {current_count}")
-                from utils.helpers import create_message
-                payload = create_message("keyboard", {
-                    "keystroke_count": current_count
-                })
-                self.ws_client.send_message(payload)
+    def send_shortcut(self, shortcut_name: str):
+        """Thread-safely dispatches key shortcut detection payload to client."""
+        if self.client.connected and self.loop:
+            message = build_message(
+                msg_type="keyboard",
+                data={"shortcut": shortcut_name}
+            )
+            asyncio.run_coroutine_threadsafe(self.client.send(message), self.loop)
 
     def stop(self):
+        """Stops the keyboard hooking logic."""
         self.running = False
-        if self.hook:
+        if keyboard_available:
             try:
-                keyboard.unhook(self.hook)
-            except Exception as e:
-                logger.error(f"Failed to unhook keyboard: {e}")
-        logger.info("Keyboard monitor stopped")
-
+                keyboard.unhook(self.on_key_event)
+            except Exception:
+                pass

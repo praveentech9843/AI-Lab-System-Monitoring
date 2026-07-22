@@ -1,54 +1,47 @@
-import time
-import threading
-import logging
+import asyncio
 import psutil
 import config
-
-logger = logging.getLogger("ProcessMonitor")
+from message_builder import build_message
 
 class ProcessMonitor:
-    def __init__(self, ws_client):
-        self.ws_client = ws_client
+    def __init__(self, client):
+        self.client = client
         self.running = False
-        self.thread = None
+        self.task = None
 
     def start(self):
-        if config.PROCESS_MONITOR_ENABLED:
-            self.running = True
-            self.thread = threading.Thread(target=self._run)
-            self.thread.daemon = True
-            self.thread.start()
-            logger.info("Process monitor started")
+        """Starts the process scan loop as a background task."""
+        self.running = True
+        self.task = asyncio.create_task(self.scan_loop())
 
-    def _get_running_processes(self):
-        processes = set()
-        for proc in psutil.process_iter(['name']):
-            try:
-                name = proc.info['name']
-                if name:
-                    processes.add(name)
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                pass
-        return sorted(list(processes))
-
-    def _run(self):
+    async def scan_loop(self):
+        """Asynchronously gathers running processes list and dispatches it."""
         while self.running:
-            try:
-                processes = self._get_running_processes()
-                logger.info(f"Monitoring {len(processes)} active processes")
-                
-                from utils.helpers import create_message
-                payload = create_message("process", {
-                    "processes": processes
-                })
-                self.ws_client.send_message(payload)
-            except Exception as e:
-                logger.error(f"Error gathering process list: {e}")
-
-            time.sleep(config.PROCESS_MONITOR_INTERVAL)
+            if self.client.connected:
+                try:
+                    processes = []
+                    for proc in psutil.process_iter(['pid', 'name', 'exe']):
+                        try:
+                            processes.append({
+                                "name": proc.info['name'] or "",
+                                "pid": proc.info['pid'],
+                                "path": proc.info['exe'] or ""
+                            })
+                        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                            pass
+                    
+                    message = build_message(
+                        msg_type="processes",
+                        data={"processes": processes}
+                    )
+                    await self.client.send(message)
+                except Exception:
+                    pass
+            await asyncio.sleep(config.PROCESS_SCAN_INTERVAL)
 
     def stop(self):
+        """Stops the process scan loop."""
         self.running = False
-        if self.thread:
-            self.thread.join(timeout=2)
-        logger.info("Process monitor stopped")
+        if self.task:
+            self.task.cancel()
+            self.task = None

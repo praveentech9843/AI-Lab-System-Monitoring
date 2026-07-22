@@ -1,12 +1,8 @@
-import time
-import threading
-import logging
+import asyncio
 import sys
 import config
+from message_builder import build_message
 
-logger = logging.getLogger("ActiveWindow")
-
-# Windows-specific imports
 if sys.platform == "win32":
     try:
         import win32gui
@@ -15,62 +11,52 @@ if sys.platform == "win32":
         win32_available = True
     except ImportError:
         win32_available = False
-        logger.warning("pywin32 or psutil not installed. Active window monitoring will not work properly on Windows.")
 else:
     win32_available = False
 
-class ActiveWindowMonitor:
-    def __init__(self, ws_client):
-        self.ws_client = ws_client
+class ActiveWindow:
+    def __init__(self, client):
+        self.client = client
         self.running = False
-        self.thread = None
-        self.last_active_window = None
+        self.task = None
+        self.last_window_info = None
 
     def start(self):
-        if config.ACTIVE_WINDOW_ENABLED:
+        """Starts the active window detection scan loop as a background task."""
+        if win32_available:
             self.running = True
-            self.thread = threading.Thread(target=self._run)
-            self.thread.daemon = True
-            self.thread.start()
-            logger.info("Active window monitor started")
+            self.task = asyncio.create_task(self.scan_loop())
 
-    def _get_active_window_info(self):
-        if not win32_available:
-            return "Unknown", "Unknown"
-
-        try:
-            hwnd = win32gui.GetForegroundWindow()
-            title = win32gui.GetWindowText(hwnd)
-            
-            _, pid = win32process.GetWindowThreadProcessId(hwnd)
-            proc = psutil.Process(pid)
-            proc_name = proc.name()
-            
-            return title, proc_name
-        except Exception as e:
-            # Can happen if the process just closed or is running as admin
-            return "Unknown", "Unknown"
-
-    def _run(self):
+    async def scan_loop(self):
+        """Asynchronously monitors for foreground active window changes."""
         while self.running:
-            title, proc_name = self._get_active_window_info()
-            current_info = {"title": title, "process": proc_name}
-            
-            if current_info != self.last_active_window:
-                self.last_active_window = current_info
-                logger.info(f"Active Window Changed: {title} ({proc_name})")
-                
-                from utils.helpers import create_message
-                payload = create_message("active_window", {
-                    "title": title,
-                    "process_name": proc_name
-                })
-                self.ws_client.send_message(payload)
-                
-            time.sleep(1)  # Poll every second for changes
+            if self.client.connected:
+                try:
+                    hwnd = win32gui.GetForegroundWindow()
+                    title = win32gui.GetWindowText(hwnd)
+                    
+                    if hwnd and title:
+                        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                        proc = psutil.Process(pid)
+                        executable = proc.name()
+                        
+                        current_info = {
+                            "title": title,
+                            "executable": executable,
+                            "pid": pid
+                        }
+                        
+                        if current_info != self.last_window_info:
+                            self.last_window_info = current_info
+                            message = build_message(msg_type="window", data=current_info)
+                            await self.client.send(message)
+                except Exception:
+                    pass
+            await asyncio.sleep(config.WINDOW_SCAN_INTERVAL)
 
     def stop(self):
+        """Stops the active window scan loop."""
         self.running = False
-        if self.thread:
-            self.thread.join(timeout=2)
-        logger.info("Active window monitor stopped")
+        if self.task:
+            self.task.cancel()
+            self.task = None

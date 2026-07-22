@@ -2,70 +2,81 @@ import asyncio
 import json
 import sys
 import websockets
-from config import SERVER_URL, SYSTEM_ID
-from utils.helpers import build_message
+import config
+from message_builder import build_message
 
 class WebSocketClient:
     def __init__(self):
         self.websocket = None
         self.connected = False
+        self.running = False
+        self.lock = asyncio.Lock()
 
     async def connect(self):
-        while True:
+        """Main connection loop that manages connection and reconnection."""
+        self.running = True
+        while self.running:
             try:
-                print(f"Connecting to {SERVER_URL}...")
+                print(f"Connecting to {config.SERVER_URL}...")
                 sys.stdout.flush()
-
-                self.websocket = await websockets.connect(SERVER_URL)
+                
+                self.websocket = await websockets.connect(config.SERVER_URL)
                 self.connected = True
                 
                 print("Connected to server")
                 sys.stdout.flush()
-
+                
                 await self.register()
-                
-                # Start heartbeat loop in the background
-                from modules.heartbeat import heartbeat_loop
-                heartbeat_task = asyncio.create_task(heartbeat_loop(self))
-                
-                # Start screen stream loop in the background
-                from modules.screen_stream import screen_stream_loop
-                screen_task = asyncio.create_task(screen_stream_loop(self))
-                
-                try:
-                    await self.receive_messages()
-                finally:
-                    heartbeat_task.cancel()
-                    screen_task.cancel()
-                    await asyncio.gather(heartbeat_task, screen_task, return_exceptions=True)
-
+                await self.receive()
             except Exception as e:
                 print(f"Connection Lost: {e}")
                 sys.stdout.flush()
-
                 self.connected = False
+                self.websocket = None
                 
-                print("Reconnecting in 5 seconds...")
-                sys.stdout.flush()
-                
-                await asyncio.sleep(5)
+                if self.running:
+                    print("Reconnecting in 5 seconds...")
+                    sys.stdout.flush()
+                    await asyncio.sleep(5)
 
     async def register(self):
-        # Construct registration payload using the build_message helper
-        message = build_message(type="register", data={})
+        """Sends the initial registration payload to the server."""
+        message = build_message(msg_type="register")
         await self.send(message)
         
         print("Register Message Sent")
         sys.stdout.flush()
 
-    async def send(self, message):
+    async def send(self, message: dict):
+        """Thread-safe and async-safe send wrapper."""
         if self.connected and self.websocket:
-            try:
-                await self.websocket.send(json.dumps(message))
-            except Exception:
-                pass
+            async with self.lock:
+                try:
+                    await self.websocket.send(json.dumps(message))
+                except Exception:
+                    pass
 
-    async def receive_messages(self):
+    async def receive(self):
+        """Asynchronously listens for incoming server messages."""
         async for message in self.websocket:
             print("Received:", message)
             sys.stdout.flush()
+
+    async def reconnect(self):
+        """Forces a reconnect by closing the active websocket."""
+        if self.websocket:
+            try:
+                await self.websocket.close()
+            except Exception:
+                pass
+
+    async def stop(self):
+        """Stops the client loop and closes the connection cleanly."""
+        self.running = False
+        self.connected = False
+        if self.websocket:
+            try:
+                await self.websocket.close()
+            except Exception:
+                pass
+            self.websocket = None
