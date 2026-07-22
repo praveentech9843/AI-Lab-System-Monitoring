@@ -14,7 +14,9 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_text()
             message = json.loads(data)
 
-            if message["type"] == "screen":
+            if message["type"] == "window":
+                print(f"Active Window: {message['data'].get('title')}")
+            elif message["type"] == "screen":
                 print("📺 Screen frame received")
             else:
                 print(f"Received: {message['type']}")
