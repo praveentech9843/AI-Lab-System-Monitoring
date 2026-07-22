@@ -13,10 +13,12 @@ class ScreenStreamer:
         self.ws_client = ws_client
         self.running = False
         self.thread = None
+        self.error_logged = False
 
     def start(self):
         if config.SCREEN_STREAM_ENABLED:
             self.running = True
+            self.error_logged = False
             self.thread = threading.Thread(target=self._run)
             self.thread.daemon = True
             self.thread.start()
@@ -54,8 +56,11 @@ class ScreenStreamer:
                             "frame": base64_data
                         })
                         self.ws_client.send_message(payload)
+                        self.error_logged = False  # Reset error logging state on success
                 except Exception as e:
-                    logger.error(f"Error capturing or sending screen frame: {e}")
+                    if not self.error_logged:
+                        logger.error(f"Error capturing or sending screen frame: {e}. Subsequent capture errors will be silenced.")
+                        self.error_logged = True
 
                 # Sleep to maintain FPS
                 elapsed = time.time() - start_time

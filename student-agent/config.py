@@ -8,6 +8,7 @@ STUDENT_ID = os.getenv("STUDENT_ID", "STUDENT_001")
 HEARTBEAT_INTERVAL = int(os.getenv("HEARTBEAT_INTERVAL", "10"))  # in seconds
 
 # Screen Stream Configuration
+SCREEN_STREAM_ENABLED = True
 SCREEN_FPS = int(os.getenv("SCREEN_FPS", "10"))
 JPEG_QUALITY = int(os.getenv("JPEG_QUALITY", "50"))  # JPEG quality 0-100
 
