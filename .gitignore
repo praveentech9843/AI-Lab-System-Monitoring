@@ -16,3 +16,23 @@ dist/
 .idea/
 Thumbs.db
 .DS_Store
+# Environment
+backend/.env
+
+# Database
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
+
+# Screenshots
+backend/static/
+
+# Vite
+frontend/.vite/
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
