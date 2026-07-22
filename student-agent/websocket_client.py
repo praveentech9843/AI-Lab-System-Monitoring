@@ -2,67 +2,56 @@ import asyncio
 import json
 import sys
 import websockets
-import config
+from config import SERVER_URL, SYSTEM_ID
+from utils.helpers import build_message
 
-class AgentWebSocketClient:
-    def __init__(self, server_url=config.SERVER_URL):
-        self.server_url = server_url
+class WebSocketClient:
+    def __init__(self):
+        self.websocket = None
         self.connected = False
-        self.running = False
-        self.ws = None
 
-    async def start(self):
-        self.running = True
-        await self._connect_loop()
-
-    async def _connect_loop(self):
-        while self.running:
-            print("Connecting...")
-            sys.stdout.flush()
+    async def connect(self):
+        while True:
             try:
-                async with websockets.connect(self.server_url) as websocket:
-                    self.ws = websocket
-                    self.connected = True
-                    print("Connected")
-                    sys.stdout.flush()
-                    
-                    # Send registration message
-                    print(f"Registering {config.SYSTEM_ID}")
-                    sys.stdout.flush()
-                    
-                    register_payload = {
-                        "type": "register",
-                        "system_id": config.SYSTEM_ID,
-                        "system_name": config.SYSTEM_NAME
-                    }
-                    await websocket.send(json.dumps(register_payload))
-                    
-                    # Loop to keep the connection open and receive any server responses
-                    async for message in websocket:
-                        pass
-                        
-            except (websockets.exceptions.ConnectionClosed, Exception) as e:
+                print(f"Connecting to {SERVER_URL}...")
+                sys.stdout.flush()
+
+                self.websocket = await websockets.connect(SERVER_URL)
+                self.connected = True
+                
+                print("Connected to server")
+                sys.stdout.flush()
+
+                await self.register()
+                await self.receive_messages()
+
+            except Exception as e:
+                print(f"Connection Lost: {e}")
+                sys.stdout.flush()
+
                 self.connected = False
-                self.ws = None
-                if self.running:
-                    # Auto reconnect after 5 seconds on connection loss/failure
-                    await asyncio.sleep(5)
+                
+                print("Reconnecting in 5 seconds...")
+                sys.stdout.flush()
+                
+                await asyncio.sleep(5)
 
-    async def send_message(self, data):
-        """Send message over WebSocket if connected."""
-        if self.ws and self.connected:
+    async def register(self):
+        # Construct registration payload using the build_message helper
+        message = build_message(type="register", data={})
+        await self.send(message)
+        
+        print("Register Message Sent")
+        sys.stdout.flush()
+
+    async def send(self, message):
+        if self.connected and self.websocket:
             try:
-                await self.ws.send(json.dumps(data))
-                return True
+                await self.websocket.send(json.dumps(message))
             except Exception:
                 pass
-        return False
 
-    async def stop(self):
-        self.running = False
-        self.connected = False
-        if self.ws:
-            try:
-                await self.ws.close()
-            except Exception:
-                pass
+    async def receive_messages(self):
+        async for message in self.websocket:
+            print("Received:", message)
+            sys.stdout.flush()
