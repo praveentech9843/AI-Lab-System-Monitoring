@@ -2,7 +2,7 @@
 Authentication FastAPI Dependencies Module.
 Provides OAuth2 token extraction and current user payload verification.
 """
-from typing import Dict, Any
+from typing import Any, Dict
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -10,7 +10,7 @@ from fastapi.security import OAuth2PasswordBearer
 from auth.jwt_handler import decode_access_token
 
 # OAuth2 scheme for extracting Bearer tokens from incoming Authorization headers
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
 
 def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:

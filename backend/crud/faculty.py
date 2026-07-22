@@ -18,9 +18,9 @@ def create_faculty(db: Session, faculty_create: FacultyCreate) -> Faculty:
     Creates a new Faculty record in the database with hashed password.
     """
     db_faculty = Faculty(
-        employee_id=faculty_create.employee_id,
-        name=faculty_create.name,
-        email=faculty_create.email,
+        employee_id=faculty_create.employee_id.strip(),
+        name=faculty_create.name.strip(),
+        email=faculty_create.email.strip().lower(),
         password_hash=hash_password(faculty_create.password),
         role=faculty_create.role,
     )
@@ -44,17 +44,17 @@ def get_faculty_by_id(db: Session, faculty_id: UUID) -> Optional[Faculty]:
 
 def get_faculty_by_email(db: Session, email: str) -> Optional[Faculty]:
     """
-    Retrieves a Faculty record by email address.
+    Retrieves a Faculty record by email address (case-insensitive).
     """
-    statement = select(Faculty).where(Faculty.email == email)
+    statement = select(Faculty).where(Faculty.email.ilike(email.strip()))
     return db.scalar(statement)
 
 
 def get_faculty_by_employee_id(db: Session, employee_id: str) -> Optional[Faculty]:
     """
-    Retrieves a Faculty record by employee ID.
+    Retrieves a Faculty record by employee ID (case-insensitive).
     """
-    statement = select(Faculty).where(Faculty.employee_id == employee_id)
+    statement = select(Faculty).where(Faculty.employee_id.ilike(employee_id.strip()))
     return db.scalar(statement)
 
 

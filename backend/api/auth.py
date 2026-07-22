@@ -1,8 +1,9 @@
 """
 Authentication REST API Router.
-Provides endpoints for Student and Faculty registration and login.
+Provides endpoints for Student and Faculty registration, login, and OAuth2 token authorization.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from auth.auth import authenticate_faculty, authenticate_student
@@ -15,6 +16,34 @@ from schemas.faculty import FacultyCreate, FacultyResponse
 from schemas.student import StudentCreate, StudentResponse
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+@router.post("/token", response_model=TokenResponse, status_code=status.HTTP_200_OK)
+def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
+    """
+    OAuth2 compatible token endpoint for Swagger UI Authorize button.
+    Authenticates Student or Faculty credentials submitted via OAuth2 form data.
+    """
+    # Attempt Student authentication
+    student = authenticate_student(db, form_data.username, form_data.password)
+    if student:
+        token = create_access_token(data={"sub": str(student.id), "role": "student"})
+        return TokenResponse(access_token=token, token_type="bearer")
+
+    # Attempt Faculty authentication
+    faculty = authenticate_faculty(db, form_data.username, form_data.password)
+    if faculty:
+        token = create_access_token(data={"sub": str(faculty.id), "role": "faculty"})
+        return TokenResponse(access_token=token, token_type="bearer")
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Incorrect email or password.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 @router.post("/student/register", response_model=StudentResponse, status_code=status.HTTP_201_CREATED)

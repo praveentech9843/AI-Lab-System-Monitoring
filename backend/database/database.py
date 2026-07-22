@@ -1,18 +1,30 @@
 """
 Database Engine Configuration Module.
-Configures the SQLAlchemy 2.x engine using application settings for PostgreSQL connection.
+Configures the SQLAlchemy 2.x engine using application settings for PostgreSQL or SQLite connections.
 """
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
 from config import settings
 
-# Production-ready SQLAlchemy Engine instance for PostgreSQL connection
+is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+
+engine_kwargs = {
+    "echo": False,
+    "pool_pre_ping": True,
+}
+
+if is_sqlite:
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    engine_kwargs.update({
+        "pool_size": 10,
+        "max_overflow": 20,
+        "pool_recycle": 1800,
+    })
+
+# SQLAlchemy Engine instance configured based on target DATABASE_URL
 engine: Engine = create_engine(
     url=settings.DATABASE_URL,
-    echo=False,              # Set to True for SQL query logging during debugging
-    pool_pre_ping=True,      # Validates connections before usage to prevent stale connection errors
-    pool_size=10,            # Maximum number of permanent connections kept in the pool
-    max_overflow=20,         # Maximum number of temporary connections allowed beyond pool_size
-    pool_recycle=1800        # Recycles connections after 30 minutes to prevent server-side drops
+    **engine_kwargs
 )

@@ -18,11 +18,11 @@ def create_student(db: Session, student_create: StudentCreate) -> Student:
     Creates a new Student record in the database with hashed password.
     """
     db_student = Student(
-        register_number=student_create.register_number,
-        name=student_create.name,
-        department=student_create.department,
+        register_number=student_create.register_number.strip(),
+        name=student_create.name.strip(),
+        department=student_create.department.strip(),
         year=student_create.year,
-        email=student_create.email,
+        email=student_create.email.strip().lower(),
         password_hash=hash_password(student_create.password),
     )
     db.add(db_student)
@@ -45,17 +45,17 @@ def get_student_by_id(db: Session, student_id: UUID) -> Optional[Student]:
 
 def get_student_by_email(db: Session, email: str) -> Optional[Student]:
     """
-    Retrieves a Student record by email address.
+    Retrieves a Student record by email address (case-insensitive).
     """
-    statement = select(Student).where(Student.email == email)
+    statement = select(Student).where(Student.email.ilike(email.strip()))
     return db.scalar(statement)
 
 
 def get_student_by_register_number(db: Session, register_number: str) -> Optional[Student]:
     """
-    Retrieves a Student record by registration number.
+    Retrieves a Student record by registration number (case-insensitive).
     """
-    statement = select(Student).where(Student.register_number == register_number)
+    statement = select(Student).where(Student.register_number.ilike(register_number.strip()))
     return db.scalar(statement)
 
 

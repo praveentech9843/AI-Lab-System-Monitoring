@@ -27,10 +27,10 @@ class Settings:
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))
 
-    # Database Connection Settings
+    # Database Connection Settings (Defaults to SQLite file for zero-setup local dev/testing)
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
-        "postgresql://postgres:password@localhost:5432/ai_lab_monitoring"
+        "sqlite:///./ai_lab_monitoring.db"
     )
 
     # JWT Authentication Settings

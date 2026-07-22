@@ -2,6 +2,7 @@
 Main entrypoint for the AI Lab System Monitoring FastAPI backend application.
 Configures application lifecycle, CORS middleware, REST API routes, and WebSocket endpoints.
 """
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -19,14 +20,23 @@ from database.base import Base
 from database.database import engine
 from websocket.routes import router as websocket_router
 
+logger = logging.getLogger("uvicorn.error")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     FastAPI application lifespan context manager.
-    Creates all database tables on application startup.
+    Attempts to create database tables on application startup without crashing the server if PostgreSQL is offline.
     """
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Successfully connected to database and verified tables.")
+    except Exception as exc:
+        logger.warning(
+            f"Database connection failed during startup ({exc}). "
+            "App started in offline database mode. Ensure PostgreSQL is running at DATABASE_URL."
+        )
     yield
 
 
