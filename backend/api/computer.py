@@ -28,21 +28,48 @@ router = APIRouter(prefix="/computers", tags=["Computers"])
 SCREENSHOTS_DIR = "./static/screenshots"
 os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
 
-BLOCKED_WEBSITES = [
-    "chatgpt.com",
-    "deepseek.com",
-    "gemini.google.com",
-    "youtube.com",
-    "reddit.com",
-    "facebook.com",
-    "instagram.com",
-]
+import time
+import logging
 
-def is_domain_blocked(domain: str) -> bool:
+logger = logging.getLogger("uvicorn.error")
+
+_blocked_domains_cache: set = None
+_blocked_domains_expire: float = 0.0
+_BLOCKED_DOMAINS_TTL = 10.0  # seconds
+
+def is_domain_blocked(domain: str, db=None) -> bool:
+    global _blocked_domains_cache, _blocked_domains_expire
     if not domain:
         return False
-    d = domain.lower()
-    return any(blocked in d or d in blocked for blocked in BLOCKED_WEBSITES)
+
+    now = time.monotonic()
+    if _blocked_domains_cache is None or now >= _blocked_domains_expire:
+        close_db = False
+        if db is None:
+            from database.session import SessionLocal
+            db = SessionLocal()
+            close_db = True
+        try:
+            from database.models import BlockedWebsite
+            websites = db.scalars(select(BlockedWebsite).where(BlockedWebsite.enabled == True)).all()
+            _blocked_domains_cache = {w.domain.lower().strip() for w in websites}
+            _blocked_domains_expire = now + _BLOCKED_DOMAINS_TTL
+        except Exception as e:
+            print(f"Error loading blocked domains in computer API: {e}")
+            if _blocked_domains_cache is None:
+                _blocked_domains_cache = set()
+        finally:
+            if close_db:
+                db.close()
+
+    d = domain.lower().strip()
+    d = d.replace("https://", "").replace("http://", "").replace("www.", "")
+    if d in _blocked_domains_cache:
+        return True
+    for blocked in _blocked_domains_cache:
+        if d.endswith("." + blocked) or d == blocked:
+            return True
+    return False
 
 @router.post("/event", response_model=ComputerEventResponse, status_code=status.HTTP_201_CREATED)
 async def post_monitoring_event(
@@ -72,7 +99,9 @@ async def post_monitoring_event(
             session = db.scalar(stmt_sess)
 
     # 2. Check for blocked website
-    is_blocked = is_domain_blocked(event_data.active_website)
+    is_blocked = is_domain_blocked(event_data.active_website, db)
+    logger.info(f"[HTTP Event] PC: {event_data.computer_id} | Active Website: '{event_data.active_website}' | Blocked: {is_blocked}")
+
     if is_blocked:
         # Override event properties to flag the violation
         event_data.activity_type = f"blocked_website:domain={event_data.active_website}"
@@ -100,21 +129,24 @@ async def post_monitoring_event(
 
     # 5. Handle Alert generation on Blocked Website
     db_alert = None
-    if is_blocked and student and session:
-        db_alert = Alert(
-            student_id=student.id,
-            session_id=session.id,
-            alert_type="blocked_website",
-            severity="CRITICAL",
-            message=f"Restricted website access: {event_data.active_website} at {event_data.computer_id}",
-            created_at=db_event.timestamp
-        )
-        db.add(db_alert)
-        try:
-            db.commit()
-            db.refresh(db_alert)
-        except Exception:
-            db.rollback()
+    if is_blocked:
+        logger.info(f"[HTTP Event] PC: {event_data.computer_id} | Domain '{event_data.active_website}' is blocked. Student resolved: {student is not None}, Session resolved: {session is not None}")
+        if student and session:
+            db_alert = Alert(
+                student_id=student.id,
+                session_id=session.id,
+                alert_type="blocked_website",
+                severity="CRITICAL",
+                message=f"Restricted website access: {event_data.active_website} at {event_data.computer_id}",
+                created_at=db_event.timestamp
+            )
+            db.add(db_alert)
+            try:
+                db.commit()
+                db.refresh(db_alert)
+                logger.info(f"[HTTP Event] Alert created successfully in DB for domain '{event_data.active_website}'")
+            except Exception:
+                db.rollback()
 
     # 6. Prepare and broadcast Real-Time Updates via WebSocket
     payload_event = {

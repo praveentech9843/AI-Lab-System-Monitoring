@@ -15,6 +15,7 @@ from api.exam_session import router as exam_session_router
 from api.faculty import router as faculty_router
 from api.student import router as student_router
 from api.computer import router as computer_router
+from api.blocked_website import router as blocked_website_router
 from config import settings
 import database.models  # Ensures all SQLAlchemy models are registered with Base metadata
 from database.base import Base
@@ -36,6 +37,38 @@ async def lifespan(app: FastAPI):
     try:
         Base.metadata.create_all(bind=engine)
         logger.info("Successfully connected to database and verified tables.")
+
+        # Seed default blocked websites if table is empty
+        from database.session import SessionLocal
+        from database.models import BlockedWebsite
+        db = SessionLocal()
+        try:
+            count = db.query(BlockedWebsite).count()
+            if count == 0:
+                logger.info("Seeding default blocked websites list...")
+                default_domains = [
+                    "chatgpt.com",
+                    "deepseek.com",
+                    "gemini.google.com",
+                    "youtube.com",
+                    "reddit.com",
+                    "facebook.com",
+                    "instagram.com",
+                    "tiktok.com",
+                    "twitter.com",
+                    "x.com",
+                    "whatsapp.com",
+                    "telegram.org",
+                ]
+                for domain in default_domains:
+                    db.add(BlockedWebsite(domain=domain, enabled=True))
+                db.commit()
+                logger.info("Default blocked websites seeded successfully.")
+        except Exception as seed_exc:
+            logger.error(f"Error seeding default blocked websites: {seed_exc}")
+        finally:
+            db.close()
+
     except Exception as exc:
         logger.warning(
             f"Database connection failed during startup ({exc}). "
@@ -68,6 +101,7 @@ app.include_router(exam_session_router)
 app.include_router(activity_log_router)
 app.include_router(alert_router)
 app.include_router(computer_router)
+app.include_router(blocked_website_router)
 
 # Register WebSocket Router
 app.include_router(websocket_router)

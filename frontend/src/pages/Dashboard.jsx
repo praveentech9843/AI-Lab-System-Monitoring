@@ -9,13 +9,14 @@ import {
   Brain, TrendingUp, ShieldAlert, Lightbulb, BarChart3,
   AlertCircle, Crosshair, FlameKindling, X, HelpCircle,
   MoreVertical, ShieldCheck, Download, Calendar, Filter, Search,
-  Unlock, Camera, UserMinus, FileText,
+  Unlock, Camera, UserMinus, FileText, Volume2, VolumeX,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/api';
 import { useAIEngine } from '../hooks/useAIEngine';
+import { useVoiceAlerts } from '../hooks/useVoiceAlerts';
 
 /* Recharts imports for professional visual graphics */
 import {
@@ -441,32 +442,63 @@ const ComputerDetailsModal = ({ computer, onClose, getRiskStatus, riskData }) =>
                 </div>
               </div>
 
-              {/* Latest Screenshot */}
-              <div className="rounded-2xl overflow-hidden bg-white/5 border border-white/5 p-4 space-y-2">
-                <span className="text-xs text-slate-500 uppercase font-semibold block">Latest Workstation Screen Capture</span>
-                {computer?.screenshot_data ? (
-                  <div className="relative rounded-xl overflow-hidden max-h-56">
-                    <img
-                      key={computer.screenshot_data}
-                      src={`data:image/jpeg;base64,${computer.screenshot_data}`}
-                      alt="Workstation capture"
-                      className="w-full h-full object-contain"
-                    />
-                  </div>
-                ) : computer?.screenshot_path ? (
-                  <div className="relative rounded-xl overflow-hidden max-h-56">
-                    <img
-                      key={computer.screenshot_path}
-                      src={`http://localhost:8000/static/screenshots/${computer.screenshot_path}`}
-                      alt="Workstation capture"
-                      className="w-full h-full object-contain"
-                    />
-                  </div>
-                ) : (
-                  <div className="h-28 rounded-xl bg-black/30 border border-white/5 flex items-center justify-center">
-                    <p className="text-xs text-slate-600">No screen captures taken yet.</p>
-                  </div>
-                )}
+              {/* Media captures (Screenshot + Webcam) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Latest Screenshot */}
+                <div className="rounded-2xl overflow-hidden bg-white/5 border border-white/5 p-4 space-y-2">
+                  <span className="text-xs text-slate-500 uppercase font-semibold block">Latest Workstation Screen Capture</span>
+                  {computer?.screenshot_data ? (
+                    <div className="relative rounded-xl overflow-hidden h-40 bg-black/30 border border-white/5 flex items-center justify-center">
+                      <img
+                        key={computer.screenshot_data}
+                        src={`data:image/jpeg;base64,${computer.screenshot_data}`}
+                        alt="Workstation capture"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  ) : computer?.screenshot_path ? (
+                    <div className="relative rounded-xl overflow-hidden h-40 bg-black/30 border border-white/5 flex items-center justify-center">
+                      <img
+                        key={computer.screenshot_path}
+                        src={`http://localhost:8000/static/screenshots/${computer.screenshot_path}`}
+                        alt="Workstation capture"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="h-40 rounded-xl bg-black/30 border border-white/5 flex items-center justify-center">
+                      <p className="text-xs text-slate-600">No screen captures taken yet.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Webcam Feed */}
+                <div className="rounded-2xl overflow-hidden bg-white/5 border border-white/5 p-4 space-y-2">
+                  <span className="text-xs text-slate-500 uppercase font-semibold block">Live Webcam Feed</span>
+                  {computer?.webcam_data ? (
+                    <div className="relative rounded-xl overflow-hidden h-40 bg-black/30 border border-white/5 flex items-center justify-center">
+                      <img
+                        key={computer.webcam_data}
+                        src={`data:image/jpeg;base64,${computer.webcam_data}`}
+                        alt="Webcam Feed"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  ) : computer?.webcam_path ? (
+                    <div className="relative rounded-xl overflow-hidden h-40 bg-black/30 border border-white/5 flex items-center justify-center">
+                      <img
+                        key={computer.webcam_path}
+                        src={`http://localhost:8000/static/webcams/${computer.webcam_path}`}
+                        alt="Webcam Feed"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="h-40 rounded-xl bg-black/30 border border-white/5 flex items-center justify-center">
+                      <p className="text-xs text-slate-600">No webcam feed available.</p>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Alert History */}
@@ -744,6 +776,7 @@ const Dashboard = () => {
   const { logout } = useAuth();
   const navigate   = useNavigate();
   const time       = useClockTick();
+  const { voices, settings: voiceSettings, setSettings: setVoiceSettings, speakAlert } = useVoiceAlerts();
 
   const handleLogout = useCallback(() => {
     logout();
@@ -908,6 +941,15 @@ const Dashboard = () => {
     finally { setAlertLoading(false); }
   }, []);
 
+  const fetchBlockedWebsites = useCallback(async () => {
+    try {
+      const { data } = await api.get('/blocked-websites');
+      setBlockedSites(data || []);
+    } catch (err) {
+      console.error('Failed to fetch blocked websites:', err);
+    }
+  }, []);
+
   /* WebSocket streaming setup */
   useEffect(() => {
     const connectWS = () => {
@@ -921,12 +963,32 @@ const Dashboard = () => {
           if (payload.event === 'COMPUTER_EVENT') {
             const state = payload.data;
             if (!state) return;
+
+            // Trigger dynamic voice warnings for security-related anomalies or metric breaches
+            const type = (state.activity_type || '').toLowerCase();
+            const cpu = state.cpu_usage || 0;
+            const ram = state.ram_usage || 0;
+
+            let speakEvt = null;
+            if (type.includes('blocked') || type.includes('phone') || type.includes('face') || type.includes('suspicious') || type.includes('usb') || type.includes('tab_switch') || type.includes('copy_paste') || type.includes('clipboard')) {
+              speakEvt = state;
+            } else if (cpu > 85) {
+              speakEvt = { ...state, activity_type: 'high_cpu' };
+            } else if (ram > 90) {
+              speakEvt = { ...state, activity_type: 'high_ram' };
+            } else if (type.includes('offline') || type.includes('online')) {
+              speakEvt = state;
+            }
+
+            if (speakEvt) {
+              speakAlert(speakEvt);
+            }
+
             setComputers(prev => {
               const grid = [...prev];
               const idx = parseInt((state.computer_id || '').replace('PC-', ''), 10) - 1;
               if (idx >= 0 && idx < 20) {
                 let status = 'Online';
-                const type = (state.activity_type || '').toLowerCase();
                 if (type.includes('blocked') || type.includes('phone') || type.includes('face') || type.includes('suspicious')) {
                   status = 'Suspicious';
                 } else if (type.includes('idle')) {
@@ -943,7 +1005,9 @@ const Dashboard = () => {
                   cpu: state.cpu_usage ?? grid[idx].cpu ?? 0,
                   ram: state.ram_usage ?? grid[idx].ram ?? 0,
                   screenshot_path: state.screenshot_path || grid[idx].screenshot_path,
-                  screenshot_data: state.screenshot_data || grid[idx].screenshot_data
+                  screenshot_data: state.screenshot_data || grid[idx].screenshot_data,
+                  webcam_path: state.webcam_path || grid[idx].webcam_path,
+                  webcam_data: state.webcam_data || grid[idx].webcam_data
                 };
               }
               return grid;
@@ -967,6 +1031,7 @@ const Dashboard = () => {
                 return [alert, ...(prev || []).slice(0, 49)];
               });
               toast.error(`🚨 Alert: ${alert.message}`, { duration: 6000 });
+              speakAlert(alert);
             }
           }
         } catch (err) {
@@ -1001,36 +1066,58 @@ const Dashboard = () => {
     if (!statsLoading) {
       fetchActivities();
       fetchAlerts();
+      fetchBlockedWebsites();
     }
-  }, [statsLoading, fetchActivities, fetchAlerts]);
+  }, [statsLoading, fetchActivities, fetchAlerts, fetchBlockedWebsites]);
 
   /* Manual Refresh */
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
       await Promise.all([fetchHealth(), fetchStats()]);
-      await Promise.all([fetchActivities(), fetchAlerts()]);
+      await Promise.all([fetchActivities(), fetchAlerts(), fetchBlockedWebsites()]);
       toast.success('Dashboard refreshed.');
     } finally { setIsRefreshing(false); }
-  }, [fetchHealth, fetchStats, fetchActivities, fetchAlerts]);
+  }, [fetchHealth, fetchStats, fetchActivities, fetchAlerts, fetchBlockedWebsites]);
 
   /* Blocked site operations */
-  const addDomain = () => {
+  const addDomain = async () => {
     const domain = newDomain.trim().toLowerCase().replace(/^https?:\/\//, '');
     if (!domain) return toast.error('Please enter a domain.');
     if ((blockedSites || []).find(s => s.domain === domain)) return toast.error('Domain already in list.');
-    setBlockedSites(prev => [...(prev || []), { id: Date.now(), domain, enabled: true }]);
-    setNewDomain('');
-    toast.success(`${domain} added to block list.`);
+    try {
+      const { data } = await api.post('/blocked-websites', { domain, enabled: true });
+      setBlockedSites(prev => [...(prev || []), data]);
+      setNewDomain('');
+      toast.success(`${domain} added to block list.`);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to add blocked website.');
+    }
   };
 
-  const removeDomain = (id) => {
+  const removeDomain = async (id) => {
     const d = (blockedSites || []).find(s => s.id === id);
-    setBlockedSites(prev => (prev || []).filter(s => s.id !== id));
-    if (d) toast.success(`${d.domain} removed.`);
+    if (!d) return;
+    try {
+      await api.delete(`/blocked-websites/${id}`);
+      setBlockedSites(prev => (prev || []).filter(s => s.id !== id));
+      toast.success(`${d.domain} removed.`);
+    } catch (err) {
+      toast.error('Failed to remove blocked website.');
+    }
   };
 
-  const toggleDomain = (id) => setBlockedSites(prev => (prev || []).map(s => s.id === id ? { ...s, enabled: !s.enabled } : s));
+  const toggleDomain = async (id) => {
+    const d = (blockedSites || []).find(s => s.id === id);
+    if (!d) return;
+    try {
+      const { data } = await api.put(`/blocked-websites/${id}`, { domain: d.domain, enabled: !d.enabled });
+      setBlockedSites(prev => (prev || []).map(s => s.id === id ? data : s));
+      toast.success(`${d.domain} block status updated.`);
+    } catch (err) {
+      toast.error('Failed to toggle blocked website.');
+    }
+  };
 
   /* ─────────────────────────────────────────
      ADMIN WORKSTATION ACTION HANDLER
@@ -1503,7 +1590,7 @@ const Dashboard = () => {
         </div>
 
         {/* ── REPORTS GENERATION CENTER ── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <SectionCard title="Security Reports Center" icon={FileText} iconColor="#8B5CF6">
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
@@ -1584,8 +1671,8 @@ const Dashboard = () => {
                     initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.85 }} layout
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <Globe size={11} style={{ color: site.enabled ? '#EF4444' : '#475569', flexShrink: 0 }} />
-                      <span className="text-[11px] font-semibold truncate text-slate-300">{site.domain}</span>
+                       <Globe size={11} style={{ color: site.enabled ? '#EF4444' : '#475569', flexShrink: 0 }} />
+                       <span className="text-[11px] font-semibold truncate text-slate-300">{site.domain}</span>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
                       <button onClick={() => toggleDomain(site.id)} className="p-1 rounded-lg hover:bg-white/5">
@@ -1598,6 +1685,100 @@ const Dashboard = () => {
                   </motion.div>
                 ))}
               </AnimatePresence>
+            </div>
+          </SectionCard>
+
+          {/* AI VOICE ALERTS SETTINGS */}
+          <SectionCard title="AI Voice Alert Settings" icon={voiceSettings.enabled ? Volume2 : VolumeX} iconColor="#8B5CF6">
+            <div className="space-y-3">
+              {/* Enabled toggle */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-400">Voice Announcements</span>
+                <button
+                  onClick={() => setVoiceSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
+                  className="p-1 rounded-lg hover:bg-white/5 transition-colors"
+                >
+                  {voiceSettings.enabled ? (
+                    <ToggleRight size={22} style={{ color: '#8B5CF6' }} />
+                  ) : (
+                    <ToggleLeft size={22} style={{ color: '#475569' }} />
+                  )}
+                </button>
+              </div>
+
+              {/* Voice Selection */}
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Select Voice</label>
+                <select
+                  value={voiceSettings.voiceName}
+                  onChange={(e) => setVoiceSettings(prev => ({ ...prev, voiceName: e.target.value }))}
+                  className="w-full bg-slate-900 text-xs font-semibold text-white px-2 py-1.5 rounded-xl border border-white/8 outline-none cursor-pointer"
+                  disabled={!voiceSettings.enabled}
+                >
+                  {(voices || []).map((voice, idx) => (
+                    <option key={idx} value={voice.name} className="bg-slate-900 text-xs">
+                      {voice.name} ({voice.lang})
+                    </option>
+                  ))}
+                  {(voices || []).length === 0 && (
+                    <option className="bg-slate-900 text-xs">No System Voices Found</option>
+                  )}
+                </select>
+              </div>
+
+              {/* Volume Slider */}
+              <div>
+                <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                  <span>Volume</span>
+                  <span className="text-slate-400">{Math.round(voiceSettings.volume * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={voiceSettings.volume}
+                  onChange={(e) => setVoiceSettings(prev => ({ ...prev, volume: parseFloat(e.target.value) }))}
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                  disabled={!voiceSettings.enabled}
+                />
+              </div>
+
+              {/* Speech Rate Slider */}
+              <div>
+                <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                  <span>Speech Speed</span>
+                  <span className="text-slate-400">{voiceSettings.rate}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2"
+                  step="0.1"
+                  value={voiceSettings.rate}
+                  onChange={(e) => setVoiceSettings(prev => ({ ...prev, rate: parseFloat(e.target.value) }))}
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                  disabled={!voiceSettings.enabled}
+                />
+              </div>
+
+              {/* Pitch Slider */}
+              <div>
+                <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                  <span>Speech Pitch</span>
+                  <span className="text-slate-400">{voiceSettings.pitch}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2"
+                  step="0.1"
+                  value={voiceSettings.pitch}
+                  onChange={(e) => setVoiceSettings(prev => ({ ...prev, pitch: parseFloat(e.target.value) }))}
+                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                  disabled={!voiceSettings.enabled}
+                />
+              </div>
             </div>
           </SectionCard>
         </div>

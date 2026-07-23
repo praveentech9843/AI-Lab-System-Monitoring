@@ -13,9 +13,7 @@ from message_builder import build_message
 BROWSER_PROCESSES = {
     "chrome.exe", "msedge.exe", "firefox.exe", "opera.exe",
     "brave.exe", "vivaldi.exe", "chromium.exe"
-}
-
-# Blocked domain keywords to extract from browser window titles
+}# Blocked domain keywords to extract from browser window titles (mutable list)
 BLOCKED_DOMAINS = [
     "youtube.com",
     "chatgpt.com",
@@ -30,6 +28,13 @@ BLOCKED_DOMAINS = [
     "whatsapp.com",
     "telegram.org",
 ]
+
+def update_blocked_domains(domains: list):
+    """Updates the blocked domains list in-place."""
+    BLOCKED_DOMAINS.clear()
+    BLOCKED_DOMAINS.extend(domains)
+    print(f"[BrowserMonitor] Updated blocked domains list to: {BLOCKED_DOMAINS}")
+    sys.stdout.flush()
 
 if sys.platform == "win32":
     try:
@@ -66,28 +71,20 @@ def extract_domain_from_title(title: str, exe: str) -> str | None:
         if domain in title_lower:
             return domain
 
-    # Common site name to domain mapping
-    name_map = {
-        "youtube": "youtube.com",
-        "chatgpt": "chatgpt.com",
-        "deepseek": "deepseek.com",
-        "gemini": "gemini.google.com",
-        "reddit": "reddit.com",
-        "facebook": "facebook.com",
-        "instagram": "instagram.com",
-        "tiktok": "tiktok.com",
-        "twitter": "twitter.com",
-        "whatsapp": "whatsapp.com",
-        "telegram": "telegram.org",
-    }
+    # Dynamic site name to domain mapping derived from domains
+    name_map = {}
+    for domain in BLOCKED_DOMAINS:
+        parts = domain.split('.')
+        if parts:
+            kw = parts[0]
+            if kw and len(kw) > 3:
+                name_map[kw] = domain
 
     for name, domain in name_map.items():
         if name in title_lower:
             return domain
 
     return None
-
-
 def try_get_browser_url_uia(hwnd: int) -> str | None:
     """
     Attempts to read the actual URL from a browser's address bar

@@ -377,3 +377,29 @@ class ComputerEvent(Base):
     def __repr__(self) -> str:
         return f"<ComputerEvent(id={self.id}, computer_id='{self.computer_id}', activity_type='{self.activity_type}')>"
 
+
+class BlockedWebsite(Base):
+    """
+    BlockedWebsite ORM Model.
+    Configurable blocked domains or keywords to alert on.
+    """
+    __tablename__ = "blocked_websites"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True
+    )
+    domain: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<BlockedWebsite(domain='{self.domain}', enabled={self.enabled})>"
+
+

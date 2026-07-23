@@ -61,7 +61,8 @@ class WebSocketClient:
         async for message in self.websocket:
             try:
                 payload = json.loads(message)
-                if payload.get("event") == "COMMAND_TRIGGERED":
+                event_name = payload.get("event")
+                if event_name == "COMMAND_TRIGGERED":
                     cmd_data = payload.get("data", {}) or {}
                     # SYSTEM_01 -> PC-01, SYSTEM_02 -> PC-02 etc.
                     cfg_comp_id = config.SYSTEM_ID.replace("SYSTEM_", "PC-")
@@ -72,6 +73,18 @@ class WebSocketClient:
                         print(f"Received admin action command: {command}")
                         sys.stdout.flush()
                         self.execute_command(command)
+                elif event_name == "BLOCKED_WEBSITES_UPDATED":
+                    domains = payload.get("data", {}).get("domains", [])
+                    print(f"Received updated blocked domains: {domains}")
+                    sys.stdout.flush()
+                    try:
+                        from modules.browser_monitor import update_blocked_domains as bm_update
+                        from modules.active_window import update_blocked_domains as aw_update
+                        bm_update(domains)
+                        aw_update(domains)
+                    except Exception as mod_exc:
+                        print(f"Error updating local blocked websites: {mod_exc}")
+                        sys.stdout.flush()
             except Exception as e:
                 print(f"Error handling incoming message: {e}")
                 sys.stdout.flush()

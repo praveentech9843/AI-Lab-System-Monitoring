@@ -24,12 +24,8 @@ from database.models import ComputerEvent, Student, ExamSession, ActivityLog, Al
 
 router = APIRouter(tags=["WebSockets"])
 
-BLOCKED_DOMAIN_SET = {
-    "chatgpt.com", "deepseek.com", "gemini.google.com",
-    "youtube.com", "reddit.com", "facebook.com",
-    "instagram.com", "tiktok.com", "twitter.com",
-    "x.com", "whatsapp.com", "telegram.org",
-}
+import logging
+logger = logging.getLogger("uvicorn.error")
 
 TITLE_KEYWORD_MAP = {
     "youtube": "youtube.com", "chatgpt": "chatgpt.com",
@@ -53,36 +49,70 @@ _state_cache: dict = {}
 _recent_alerts: dict = {}
 _ALERT_COOLDOWN = 60  # seconds
 
+_blocked_domains_cache: set = None
+_blocked_domains_expire: float = 0.0
+_BLOCKED_DOMAINS_TTL = 10.0  # seconds
 
-def is_domain_blocked(domain: str) -> bool:
+def get_blocked_domains_from_db(db=None) -> set:
+    global _blocked_domains_cache, _blocked_domains_expire
+    now = time.monotonic()
+    if _blocked_domains_cache is None or now >= _blocked_domains_expire:
+        close_db = False
+        if db is None:
+            from database.session import SessionLocal
+            db = SessionLocal()
+            close_db = True
+        try:
+            from database.models import BlockedWebsite
+            websites = db.scalars(select(BlockedWebsite).where(BlockedWebsite.enabled == True)).all()
+            _blocked_domains_cache = {w.domain.lower().strip() for w in websites}
+            _blocked_domains_expire = now + _BLOCKED_DOMAINS_TTL
+        except Exception as e:
+            print(f"Error loading blocked domains in WS: {e}")
+            if _blocked_domains_cache is None:
+                _blocked_domains_cache = set()
+        finally:
+            if close_db:
+                db.close()
+    return _blocked_domains_cache or set()
+
+
+def is_domain_blocked(domain: str, db=None) -> bool:
     if not domain:
         return False
+    blocked_domains = get_blocked_domains_from_db(db)
     d = domain.lower().strip()
     d = d.replace("https://", "").replace("http://", "").replace("www.", "")
-    if d in BLOCKED_DOMAIN_SET:
+    if d in blocked_domains:
         return True
-    for blocked in BLOCKED_DOMAIN_SET:
+    for blocked in blocked_domains:
         if d.endswith("." + blocked) or d == blocked:
             return True
     return False
 
 
-def extract_domain_from_title(title: str, exe: str = "") -> str | None:
+def extract_domain_from_title(title: str, exe: str = "", db=None) -> str | None:
     if not title:
         return None
     if exe and exe.lower() not in BROWSER_EXES:
         return None
     title_lower = title.lower()
-    for blocked in BLOCKED_DOMAIN_SET:
+    blocked_domains = get_blocked_domains_from_db(db)
+    for blocked in blocked_domains:
         if blocked in title_lower:
             return blocked
-    for keyword, domain in TITLE_KEYWORD_MAP.items():
-        if keyword in title_lower:
-            return domain
+    
+    # Try keywords (derive keyword by splitting domain at '.')
+    for domain in blocked_domains:
+        parts = domain.split('.')
+        if parts:
+            kw = parts[0]
+            if kw and len(kw) > 3 and kw in title_lower:
+                return domain
     return None
 
 
-def _get_cached_student_session(computer_id: str, db):
+def _get_cached_student_session(computer_id: str, db, student_name_hint: str = None):
     now = time.monotonic()
     cached = _student_cache.get(computer_id)
     if cached:
@@ -90,19 +120,32 @@ def _get_cached_student_session(computer_id: str, db):
         if now < expires:
             return student, session
 
-    idx = -1
-    try:
-        idx = int(computer_id.replace("PC-", "")) - 1
-    except Exception:
-        pass
-
     student = None
     session = None
 
-    if idx >= 0:
-        students = db.scalars(select(Student)).all()
-        if 0 <= idx < len(students):
-            student = students[idx]
+    if student_name_hint:
+        try:
+            student = db.scalar(select(Student).where(Student.name.ilike(student_name_hint.strip())))
+        except Exception:
+            pass
+
+    if not student:
+        idx = -1
+        try:
+            idx = int(computer_id.replace("PC-", "")) - 1
+        except Exception:
+            pass
+
+        if idx >= 0:
+            try:
+                students = db.scalars(select(Student)).all()
+                if 0 <= idx < len(students):
+                    student = students[idx]
+            except Exception:
+                pass
+
+    if student:
+        try:
             stmt_sess = (
                 select(ExamSession)
                 .where(ExamSession.student_id == student.id)
@@ -111,6 +154,8 @@ def _get_cached_student_session(computer_id: str, db):
                 .limit(1)
             )
             session = db.scalar(stmt_sess)
+        except Exception:
+            pass
 
     _student_cache[computer_id] = (student, session, now + _CACHE_TTL)
     return student, session
@@ -217,6 +262,12 @@ def _build_computer_event_payload(evt_id, computer_id, student_name, state: dict
         ts_ms = int(time.time() * 1000)
         state["screenshot_timestamp"] = ts_ms
 
+    webcam = state.get("webcam_path")
+    webcam_ts = state.get("webcam_timestamp")
+    if webcam and not webcam_ts:
+        webcam_ts = int(time.time() * 1000)
+        state["webcam_timestamp"] = webcam_ts
+
     app = state.get("active_application")
     if not app or app == "None":
         app = "Visual Studio Code"
@@ -235,6 +286,8 @@ def _build_computer_event_payload(evt_id, computer_id, student_name, state: dict
             "ram_usage": state.get("ram_usage", 0.0),
             "screenshot_path": f"{screenshot}?t={ts_ms}" if (screenshot and ts_ms) else screenshot,
             "screenshot_data": screenshot_data,
+            "webcam_path": f"{webcam}?t={webcam_ts}" if (webcam and webcam_ts) else webcam,
+            "webcam_data": state.get("webcam_data"),
             "activity_type": state.get("activity_type", "normal"),
             "confidence": state.get("confidence", 1.0),
             "timestamp": state.get("timestamp", datetime.now(timezone.utc).isoformat()),
@@ -268,9 +321,10 @@ async def websocket_live_endpoint(websocket: WebSocket) -> None:
                 continue
 
             system_id = payload.get("system_id", "SYSTEM_01")
-            computer_id = system_id.replace("SYSTEM_", "PC-")
+            computer_id = payload.get("workstation_id") or system_id.replace("SYSTEM_", "PC-")
             msg_type = payload.get("type")
             msg_data = payload.get("data", {}) or {}
+            student_name_hint = payload.get("student_name")
             timestamp_str = payload.get("timestamp", "")
             try:
                 timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
@@ -279,8 +333,8 @@ async def websocket_live_endpoint(websocket: WebSocket) -> None:
 
             db = SessionLocal()
             try:
-                student, session = _get_cached_student_session(computer_id, db)
-                student_name = student.name if student else "Unknown Student"
+                student, session = _get_cached_student_session(computer_id, db, student_name_hint=student_name_hint)
+                student_name = student.name if student else (student_name_hint or "Unknown Student")
                 state = _get_state(computer_id, db)
 
                 # ══════════════════════════════════════════════════════════════
@@ -323,6 +377,49 @@ async def websocket_live_endpoint(websocket: WebSocket) -> None:
                             )
                         except Exception as ex:
                             print(f"Screenshot error: {ex}")
+
+                # ══════════════════════════════════════════════════════════════
+                elif msg_type == "webcam":
+                    base64_img = msg_data.get("image")
+                    if base64_img:
+                        try:
+                            import base64
+                            img_bytes = base64.b64decode(base64_img)
+                            os.makedirs("./static/webcams", exist_ok=True)
+                            filename = f"{computer_id}_latest.jpg"
+                            filepath = f"./static/webcams/{filename}"
+                            with open(filepath, "wb") as f:
+                                f.write(img_bytes)
+
+                            _update_state(computer_id, webcam_path=filename, webcam_timestamp=int(time.time() * 1000), webcam_data=base64_img)
+
+                            evt_id = _uuid.uuid4()
+                            cur_state = _get_state(computer_id, db)
+
+                            await manager.broadcast({
+                                "event": "COMPUTER_EVENT",
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "data": {
+                                    "id": str(evt_id),
+                                    "computer_id": computer_id,
+                                    "student_name": student_name,
+                                    "active_application": cur_state.get("active_application", "Visual Studio Code"),
+                                    "active_website": cur_state.get("active_website", "None"),
+                                    "cpu_usage": cur_state.get("cpu_usage", 0.0),
+                                    "ram_usage": cur_state.get("ram_usage", 0.0),
+                                    "screenshot_path": cur_state.get("screenshot_path"),
+                                    "screenshot_data": cur_state.get("screenshot_data"),
+                                    "webcam_path": f"{filename}?t={cur_state.get('webcam_timestamp', 0)}",
+                                    "webcam_data": base64_img,
+                                    "activity_type": "webcam_update",
+                                    "confidence": 1.0,
+                                    "timestamp": timestamp.isoformat(),
+                                    "session_id": str(session.id) if session else None,
+                                    "student_id": str(student.id) if student else None,
+                                }
+                            })
+                        except Exception as ex:
+                            print(f"Webcam error: {ex}")
 
                 # ══════════════════════════════════════════════════════════════
                 elif msg_type == "heartbeat":
@@ -390,7 +487,9 @@ async def websocket_live_endpoint(websocket: WebSocket) -> None:
                     domain = msg_data.get("domain", "")
                     executable = msg_data.get("executable", "Browser")
 
-                    is_blocked = is_domain_blocked(domain)
+                    is_blocked = is_domain_blocked(domain, db)
+                    logger.info(f"[WS Browser] PC: {computer_id} | Detected domain: '{domain}' | Blocked: {is_blocked}")
+
                     activity_type = f"blocked_website:{domain}" if is_blocked else "browser_activity"
                     confidence = 0.98 if is_blocked else 1.0
 
@@ -451,14 +550,17 @@ async def websocket_live_endpoint(websocket: WebSocket) -> None:
                             }
                         })
 
-                    if is_blocked and _should_alert(computer_id, domain):
-                        await _store_and_broadcast_alert(
-                            db, student, session,
-                            alert_type="blocked_website",
-                            severity="CRITICAL",
-                            message=f"Restricted website accessed: {domain} on {computer_id} ({student_name})",
-                            timestamp=timestamp,
-                        )
+                    if is_blocked:
+                        should_alert = _should_alert(computer_id, domain)
+                        logger.info(f"[WS Browser Alert Check] PC: {computer_id} | Domain: '{domain}' is blocked. Create alert: {should_alert}")
+                        if should_alert:
+                            await _store_and_broadcast_alert(
+                                db, student, session,
+                                alert_type="blocked_website",
+                                severity="CRITICAL",
+                                message=f"Restricted website accessed: {domain} on {computer_id} ({student_name})",
+                                timestamp=timestamp,
+                            )
 
                 # ══════════════════════════════════════════════════════════════
                 elif msg_type in ("register", "window", "clipboard", "keyboard"):
@@ -474,6 +576,20 @@ async def websocket_live_endpoint(websocket: WebSocket) -> None:
 
                     if msg_type == "register":
                         activity_type = "agent_registered"
+                        # Fetch enabled blocked websites and send them to the agent
+                        try:
+                            from database.models import BlockedWebsite
+                            websites = db.scalars(select(BlockedWebsite).where(BlockedWebsite.enabled == True)).all()
+                            enabled_domains = [w.domain for w in websites]
+                            await manager.send_personal_message({
+                                "event": "BLOCKED_WEBSITES_UPDATED",
+                                "data": {
+                                    "domains": enabled_domains
+                                }
+                            }, websocket)
+                            logger.info(f"[WS Register] Sent {len(enabled_domains)} blocked domains to PC {computer_id}")
+                        except Exception as reg_exc:
+                            logger.error(f"[WS Register] Error sending blocked domains to PC {computer_id}: {reg_exc}")
 
                     elif msg_type == "window":
                         active_app = msg_data.get("executable") or active_app
@@ -483,15 +599,20 @@ async def websocket_live_endpoint(websocket: WebSocket) -> None:
                         if detected_domain:
                             active_website = detected_domain
                         elif title:
-                            active_website = extract_domain_from_title(title, active_app) or active_website
+                            active_website = extract_domain_from_title(title, active_app, db) or active_website
 
                         activity_type = "normal_coding_activity"
                         website_to_check = detected_domain or active_website
 
-                        if is_domain_blocked(website_to_check):
+                        is_blocked = is_domain_blocked(website_to_check, db)
+                        logger.info(f"[WS Window] PC: {computer_id} | Title: '{title}' | Extracted Domain: '{website_to_check}' | Blocked: {is_blocked}")
+
+                        if is_blocked:
                             activity_type = f"blocked_website:{website_to_check}"
                             confidence = 0.98
-                            if _should_alert(computer_id, website_to_check):
+                            should_alert = _should_alert(computer_id, website_to_check)
+                            logger.info(f"[WS Window Alert Check] PC: {computer_id} | Domain: '{website_to_check}' is blocked. Create alert: {should_alert}")
+                            if should_alert:
                                 generate_alert = True
                                 alert_domain = website_to_check
                         elif "code" in active_app.lower() or "vs" in active_app.lower():

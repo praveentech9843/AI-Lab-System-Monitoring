@@ -8,6 +8,7 @@ from .auth import LoginRequest, TokenResponse
 from .exam_session import ExamSessionBase, ExamSessionCreate, ExamSessionResponse, ExamSessionUpdate
 from .faculty import FacultyBase, FacultyCreate, FacultyResponse, FacultyUpdate
 from .student import StudentBase, StudentCreate, StudentResponse, StudentUpdate
+from .blocked_website import BlockedWebsiteBase, BlockedWebsiteCreate, BlockedWebsiteResponse
 
 __all__ = [
     # Authentication Schemas
@@ -36,4 +37,8 @@ __all__ = [
     "AlertBase",
     "AlertCreate",
     "AlertResponse",
+    # BlockedWebsite Schemas
+    "BlockedWebsiteBase",
+    "BlockedWebsiteCreate",
+    "BlockedWebsiteResponse",
 ]

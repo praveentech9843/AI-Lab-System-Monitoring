@@ -28,19 +28,12 @@ BLOCKED_DOMAINS = [
     "twitter.com", "x.com", "whatsapp.com", "telegram.org",
 ]
 
-TITLE_DOMAIN_MAP = {
-    "youtube": "youtube.com",
-    "chatgpt": "chatgpt.com",
-    "deepseek": "deepseek.com",
-    "gemini": "gemini.google.com",
-    "reddit": "reddit.com",
-    "facebook": "facebook.com",
-    "instagram": "instagram.com",
-    "tiktok": "tiktok.com",
-    "twitter": "twitter.com",
-    "whatsapp": "whatsapp.com",
-    "telegram": "telegram.org",
-}
+def update_blocked_domains(domains: list):
+    """Updates the blocked domains list in-place."""
+    BLOCKED_DOMAINS.clear()
+    BLOCKED_DOMAINS.extend(domains)
+    print(f"[ActiveWindow] Updated blocked domains list to: {BLOCKED_DOMAINS}")
+    sys.stdout.flush()
 
 
 def extract_domain_from_title(title: str, exe: str) -> str | None:
@@ -53,7 +46,17 @@ def extract_domain_from_title(title: str, exe: str) -> str | None:
     for domain in BLOCKED_DOMAINS:
         if domain in title_lower:
             return domain
-    for keyword, domain in TITLE_DOMAIN_MAP.items():
+
+    # Dynamic site name to domain mapping derived from domains
+    name_map = {}
+    for domain in BLOCKED_DOMAINS:
+        parts = domain.split('.')
+        if parts:
+            kw = parts[0]
+            if kw and len(kw) > 3:
+                name_map[kw] = domain
+
+    for keyword, domain in name_map.items():
         if keyword in title_lower:
             return domain
     return None

